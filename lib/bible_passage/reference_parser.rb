@@ -1,0 +1,119 @@
+module BiblePassage
+  class ReferenceParser
+
+    PASSAGE_REGEX = /^\s*(\d?\s*[A-Za-z\s]+)\s*(\d+)?:?(\d+)?\s*-?\s*(\d+)?:?(\d+)?\s*(,.+)?/
+    CHILD_PASSAGE_REGEX =                  /\s*(\d+)?:?(\d+)?\s*(-?)\s*(\d+)?:?(\d+)?\s*(,.+)?$/
+
+    def self.parse(passage, opts = {})
+      ReferenceParser.new(opts).parse(passage)
+    end
+
+    attr_reader :options, :translator, :data_store, :raise_errors
+
+    def initialize(opts = {})
+      @options = opts
+      @raise_errors = opts.fetch(:raise_errors, true)
+      @translator = options.delete(:translator) || BookKeyTranslator.new
+      @data_store = options[:data_store] ||= BookDataStore.new
+    end
+
+    # The main method used for parsing passage strings
+    def parse(passage)
+      match = passage.match(PASSAGE_REGEX)
+      return handle_invalid_reference("#{passage} is not a valid reference") if match.nil?
+
+      book_key = translator.keyify(match[1], raise_errors)
+      return InvalidReference.new("#{match[1]} is not a valid book") if book_key.nil?
+
+      if data_store.number_of_chapters(book_key) == 1
+        ref = process_single_chapter_match(book_key, match)
+      else
+        ref = process_multi_chapter_match(book_key, match)
+      end
+      ref.child = parse_child(match[6].gsub(/^,\s*/, ''), ref) if match[6]
+      ref
+    end
+
+    private
+
+    def handle_invalid_reference(message)
+      return InvalidReference.new(message) unless raise_errors
+      raise InvalidReferenceError.new(message)
+    end
+
+    ##
+    # Parses a child reference in a compound passage string
+    def parse_child(passage, parent)
+      if passage.match(PASSAGE_REGEX)
+        ref = parse(passage)
+      else
+        match = passage.match(CHILD_PASSAGE_REGEX)
+        book_key = parent.book_key
+        attrs = parent.inheritable_attributes
+        if attrs[:from_chapter]
+          if match[2]
+            attrs[:from_chapter] = match[1].to_i
+            attrs[:from_verse] = match[2].to_i
+          else
+            attrs[:from_verse] = match[1].to_i
+          end
+        else
+          attrs[:from_chapter] = match[1].to_i
+          if match[2]
+            attrs[:from_verse] = match[2].to_i
+          else
+          end
+        end
+        if match[5]
+          attrs[:to_chapter] = int_param(match[4])
+          attrs[:to_verse] = int_param(match[5])
+        elsif attrs[:from_verse]
+          attrs[:to_verse] = int_param(match[4])
+        else
+          attrs[:to_chapter] = int_param(match[4])
+        end
+        ref = Reference.new(book_key, attrs[:from_chapter], attrs[:from_verse],
+                  attrs[:to_chapter], attrs[:to_verse])
+      end
+      ref.parent = parent
+      ref
+    end
+
+    def int_param(param)
+      param ? param.to_i : nil
+    end
+
+    def process_multi_chapter_match(book_key, match)
+      if match[2]
+        from_chapter = match[2].to_i
+        # has from verse
+        if match[3]
+          from_verse = match[3].to_i
+          if match[5]
+            to_chapter = match[4].to_i
+            to_verse = match[5].to_i
+          else
+            to_verse = int_param(match[4])
+          end
+        else
+          from_verse = int_param(match[3])
+          to_chapter = int_param(match[4])
+        end
+      end
+      Reference.new(book_key, from_chapter, from_verse, to_chapter, to_verse, options)
+    end
+
+    def process_single_chapter_match(book_key, match)
+      if match[2]
+        from_verse = match[2].to_i
+        to_verse = match[4].to_i if match[4]
+      end
+      if match[0] =~ /:/
+        book_name = data_store.book_name(book_key)
+        msg = "#{book_name} doesn't have any chapters"
+        return handle_invalid_reference(msg)
+      end
+      Reference.new(book_key, nil, from_verse, nil, to_verse, options)
+    end
+  end
+end
