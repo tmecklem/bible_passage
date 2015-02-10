@@ -1,7 +1,7 @@
 module BiblePassage
   class ReferenceParser
 
-    PASSAGE_REGEX = /^\s*(\d?\s*[A-Za-z\s]+)\s*(\d+)?:?(\d+)?\s*-?\s*(\d+)?:?(\d+)?\s*(,.+)?/
+    PASSAGE_REGEX = /^\s*(?<book_name>\d?\s*[A-Za-z\s]+)\s*(?<from_chapter>\d+)?:?(?<from_verse>\d+)?\s*-?\s*(?<to_chapter>\d+)?:?(?<to_verse>\d+)?\s*(?<child_reference>,.+)?/
     CHILD_PASSAGE_REGEX =                  /\s*(\d+)?:?(\d+)?\s*(-?)\s*(\d+)?:?(\d+)?\s*(,.+)?$/
 
     def self.parse(passage, opts = {})
@@ -22,15 +22,11 @@ module BiblePassage
       match = passage.match(PASSAGE_REGEX)
       return handle_invalid_reference("#{passage} is not a valid reference") if match.nil?
 
-      book_key = translator.keyify(match[1], raise_errors)
-      return InvalidReference.new("#{match[1]} is not a valid book") if book_key.nil?
+      book_key = translator.keyify(match[:book_name], raise_errors)
+      return InvalidReference.new("#{match[:book_name]} is not a valid book") if book_key.nil?
 
-      if data_store.number_of_chapters(book_key) == 1
-        ref = process_single_chapter_match(book_key, match)
-      else
-        ref = process_multi_chapter_match(book_key, match)
-      end
-      ref.child = parse_child(match[6].gsub(/^,\s*/, ''), ref) if match[6]
+      ref = process_match(book_key, match)
+      ref.child = parse_child(match[6].gsub(/^,\s*/, ''), ref) if match[:child_reference]
       ref
     end
 
@@ -83,30 +79,42 @@ module BiblePassage
       param ? param.to_i : nil
     end
 
+    def process_match(book_key, match)
+      if data_store.number_of_chapters(book_key) == 1
+        process_single_chapter_match(book_key, match)
+      else
+        process_multi_chapter_match(book_key, match)
+      end
+    end
+
     def process_multi_chapter_match(book_key, match)
-      if match[2]
-        from_chapter = match[2].to_i
+      if match[:from_chapter]
+        from_chapter = match[:from_chapter].to_i
         # has from verse
-        if match[3]
-          from_verse = match[3].to_i
-          if match[5]
-            to_chapter = match[4].to_i
-            to_verse = match[5].to_i
+        if match[:from_verse]
+          from_verse = match[:from_verse].to_i
+          if match[:to_verse]
+            to_chapter = match[:to_chapter].to_i
+            to_verse = match[:to_verse].to_i
           else
-            to_verse = int_param(match[4])
+            # there is no chapter, so verse is stored in :to_chapter match
+            to_verse = int_param(match[:to_chapter])
           end
         else
-          from_verse = int_param(match[3])
-          to_chapter = int_param(match[4])
+          from_verse = int_param(match[:from_verse])
+          to_chapter = int_param(match[:to_chapter])
         end
       end
       Reference.new(book_key, from_chapter, from_verse, to_chapter, to_verse, options)
     end
 
+    # In single chapter books, the from/to chapter matches
+    # actually represent the from/to verses
+    # TODO: maybe there's a better way to represent that mismatch in code
     def process_single_chapter_match(book_key, match)
-      if match[2]
-        from_verse = match[2].to_i
-        to_verse = match[4].to_i if match[4]
+      if match[:from_chapter]
+        from_verse = match[:from_chapter].to_i
+        to_verse = match[:to_chapter].to_i if match[:to_chapter]
       end
       if match[0] =~ /:/
         book_name = data_store.book_name(book_key)
