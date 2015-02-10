@@ -2,7 +2,7 @@ module BiblePassage
   class ReferenceParser
 
     PASSAGE_REGEX = /^\s*(?<book_name>\d?\s*[A-Za-z\s]+)\s*(?<from_chapter>\d+)?:?(?<from_verse>\d+)?\s*-?\s*(?<to_chapter>\d+)?:?(?<to_verse>\d+)?\s*(?<child_reference>,.+)?/
-    CHILD_PASSAGE_REGEX =                  /\s*(\d+)?:?(\d+)?\s*(-?)\s*(\d+)?:?(\d+)?\s*(,.+)?$/
+    CHILD_PASSAGE_REGEX =                  /\s*(?<from_chapter>\d+)?:?(?<from_verse>\d+)?\s*(-?)\s*(?<to_chapter>\d+)?:?(?<to_verse>\d+)?\s*(?<child_reference>,.+)?$/
 
     def self.parse(passage, opts = {})
       ReferenceParser.new(opts).parse(passage)
@@ -32,11 +32,6 @@ module BiblePassage
 
     private
 
-    def handle_invalid_reference(message)
-      return InvalidReference.new(message) unless raise_errors
-      raise InvalidReferenceError.new(message)
-    end
-
     ##
     # Parses a child reference in a compound passage string
     def parse_child(passage, parent)
@@ -48,31 +43,30 @@ module BiblePassage
         attrs = parent.inheritable_attributes
         if attrs[:from_chapter]
           if match[2]
-            attrs[:from_chapter] = match[1].to_i
-            attrs[:from_verse] = match[2].to_i
+            attrs[:from_chapter] = match[:from_chapter].to_i
+            attrs[:from_verse] = match[:from_verse].to_i
           else
-            attrs[:from_verse] = match[1].to_i
+            attrs[:from_verse] = match[:from_chapter].to_i
           end
         else
-          attrs[:from_chapter] = match[1].to_i
-          if match[2]
-            attrs[:from_verse] = match[2].to_i
-          else
+          attrs[:from_chapter] = match[:from_chapter].to_i
+          if match[:from_verse]
+            attrs[:from_verse] = match[:from_verse].to_i
           end
         end
-        if match[5]
-          attrs[:to_chapter] = int_param(match[4])
-          attrs[:to_verse] = int_param(match[5])
+        if match[:to_verse]
+          attrs[:to_chapter] = int_param(match[:to_chapter])
+          attrs[:to_verse] = int_param(match[:to_verse])
         elsif attrs[:from_verse]
-          attrs[:to_verse] = int_param(match[4])
+          attrs[:to_verse] = int_param(match[:to_chapter])
         else
-          attrs[:to_chapter] = int_param(match[4])
+          attrs[:to_chapter] = int_param(match[:to_chapter])
         end
         ref = Reference.new(book_key, attrs[:from_chapter], attrs[:from_verse],
                   attrs[:to_chapter], attrs[:to_verse])
       end
       ref.parent = parent
-      ref.child = parse_child(match[6].gsub(/^,\s*/, ''), ref) if match && match[6]
+      ref.child = parse_child(match[:child_reference].gsub(/^,\s*/, ''), ref) if match && match[:child_reference]
       ref
     end
 
@@ -123,6 +117,11 @@ module BiblePassage
         return handle_invalid_reference(msg)
       end
       Reference.new(book_key, nil, from_verse, nil, to_verse, options)
+    end
+
+    def handle_invalid_reference(message)
+      return InvalidReference.new(message) unless raise_errors
+      raise InvalidReferenceError.new(message)
     end
   end
 end
