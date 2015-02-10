@@ -289,6 +289,8 @@ describe BiblePassage::Reference do
 
     it_renders_passage("Ephesians 4:20-32, 5:18-19", "Ephesians 4:20-32, 5:18-19")
 
+    it_renders_passage("gen 1-2, 4-10, 6-12", "Genesis 1-2, 4-10, 6-12")
+
   end
 
   context "error checking" do

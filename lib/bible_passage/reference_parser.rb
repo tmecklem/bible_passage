@@ -26,7 +26,7 @@ module BiblePassage
       return InvalidReference.new("#{match[:book_name]} is not a valid book") if book_key.nil?
 
       ref = process_match(book_key, match)
-      ref.child = parse_child(match[6].gsub(/^,\s*/, ''), ref) if match[:child_reference]
+      ref.child = parse_child(match[:child_reference].gsub(/^,\s*/, ''), ref) if match[:child_reference]
       ref
     end
 
@@ -72,6 +72,7 @@ module BiblePassage
                   attrs[:to_chapter], attrs[:to_verse])
       end
       ref.parent = parent
+      ref.child = parse_child(match[6].gsub(/^,\s*/, ''), ref) if match && match[6]
       ref
     end
 
